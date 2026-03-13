@@ -235,6 +235,7 @@ class Player {
             case 'laser':
                 B.push(new Bullet(cx - 3, top, 0, -20, 'player', 'laser')); break;
         }
+        if (B.length && typeof Audio !== 'undefined') Audio.sfxShoot(this.fireMode);
         return B;
     }
 
@@ -522,6 +523,513 @@ class Powerup {
     }
 }
 
+
+
+/* ════════════════════════════════════════════════════════════════
+   NOVA BLITZ — NovaAudio
+   Moteur musical 100% Web Audio API (zéro fichier externe)
+
+   Architecture :
+   ┌─ MenuMusic  : drone ambient + arpège pad lent
+   ├─ GameMusic  : boucle electro rythmique (basse + lead + perc)
+   │              tempo adaptatif selon le palier (tier)
+   ├─ GameOverFx : accord descendant dramatique
+   └─ SFX pool   : shoot, explosion, coin, powerup, boss_alert
+════════════════════════════════════════════════════════════════ */
+class NovaAudio {
+    constructor() {
+        this._ctx = null;   // AudioContext (créé au premier geste)
+        this._master = null;   // GainNode master
+        this._muted = localStorage.getItem('nb3_muted') === '1';
+        this._mode = null;   // 'menu' | 'game' | null
+        this._nodes = [];     // noeuds actifs (pour cleanup)
+        this._tier = 1;
+        this._loopBars = 0;      // compteur de mesures pour la boucle jeu
+        this._beatMs = 500;    // durée d'un temps (ms) à tier 1
+        this._nextBeat = 0;      // timestamp du prochain beat Web Audio
+        this._scheduleAhead = 0.12; // secondes d'avance pour le scheduler
+
+        // Notes (fréquences en Hz) — gamme pentatonique mineure
+        this._SCALE = [
+            130.81, 155.56, 174.61, 196.00, 233.08,  // C3 Eb3 F3 G3 Bb3
+            261.63, 311.13, 349.23, 392.00, 466.16,  // C4 Eb4 F4 G4 Bb4
+            523.25, 622.25, 698.46,                   // C5 Eb5 F5
+        ];
+        // Patterns mélodiques (index dans _SCALE)
+        this._LEAD_PATTERNS = [
+            [0, 4, 2, 5, 3, 7, 5, 9],
+            [2, 0, 4, 2, 7, 5, 9, 7],
+            [5, 4, 2, 0, 7, 5, 4, 2],
+            [9, 7, 5, 4, 2, 0, 2, 4],
+        ];
+        this._BASS_PATTERNS = [
+            [0, 0, 5, 0, 3, 0, 5, 3],
+            [0, 5, 0, 3, 5, 0, 3, 0],
+            [3, 0, 5, 3, 0, 5, 7, 5],
+        ];
+        this._patternIdx = 0;
+        this._bassPatIdx = 0;
+        this._beatIdx = 0;
+
+        // Bind du bouton mute
+        const btn = document.getElementById('audio-toggle');
+        if (btn) {
+            this._updateBtn(btn);
+            btn.addEventListener('click', () => this.toggleMute());
+        }
+    }
+
+    /* ── Init AudioContext (doit être dans un geste utilisateur) ── */
+    _init() {
+        if (this._ctx) return;
+        this._ctx = new (window.AudioContext || window.webkitAudioContext)();
+        this._master = this._ctx.createGain();
+        this._master.gain.value = this._muted ? 0 : 0.7;
+        this._master.connect(this._ctx.destination);
+    }
+
+    /* ── Mute / Unmute ─────────────────────────────────────────── */
+    toggleMute() {
+        this._muted = !this._muted;
+        localStorage.setItem('nb3_muted', this._muted ? '1' : '0');
+        if (this._master) {
+            this._master.gain.setTargetAtTime(this._muted ? 0 : 0.7, this._ctx.currentTime, 0.05);
+        }
+        const btn = document.getElementById('audio-toggle');
+        if (btn) this._updateBtn(btn);
+    }
+
+    _updateBtn(btn) {
+        btn.textContent = this._muted ? '🔇' : '🔊';
+        btn.classList.toggle('muted', this._muted);
+    }
+
+    /* ── Stop tout ─────────────────────────────────────────────── */
+    _stopAll() {
+        this._nodes.forEach(n => { try { n.stop(); } catch { } });
+        this._nodes = [];
+        this._mode = null;
+        if (this._schedTimer) { clearInterval(this._schedTimer); this._schedTimer = null; }
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       MUSIQUE MENU — drone + arpège ambiant
+    ───────────────────────────────────────────────────────────── */
+    playMenu() {
+        this._init();
+        if (this._mode === 'menu') return;
+        this._stopAll();
+        this._mode = 'menu';
+
+        const ac = this._ctx;
+
+        // Drone de fond (oscillateur + LFO sur le volume)
+        const drone = this._makeDrone(65.41, 0.14);   // C2
+        const drone2 = this._makeDrone(98.00, 0.07);  // G2
+        const drone3 = this._makeDrone(130.81, 0.05); // C3 légèrement désaccordé
+        this._nodes.push(drone, drone2, drone3);
+
+        // Pad doux (filtre passe-bas + réverb simulée)
+        this._scheduleArp();
+    }
+
+    _makeDrone(freq, vol) {
+        const ac = this._ctx;
+        const osc = ac.createOscillator();
+        const gain = ac.createGain();
+        const lfo = ac.createOscillator();
+        const lfog = ac.createGain();
+
+        osc.type = 'sawtooth'; osc.frequency.value = freq + Math.random() * 0.5;
+        lfo.type = 'sine'; lfo.frequency.value = 0.18 + Math.random() * 0.08;
+        lfog.gain.value = 0.04;
+
+        const filt = ac.createBiquadFilter();
+        filt.type = 'lowpass'; filt.frequency.value = 800; filt.Q.value = 2;
+
+        lfo.connect(lfog); lfog.connect(gain.gain);
+        osc.connect(filt); filt.connect(gain); gain.connect(this._master);
+        gain.gain.value = vol;
+        osc.start(); lfo.start();
+        return { stop() { try { osc.stop(); lfo.stop(); } catch { } } };
+    }
+
+    _scheduleArp() {
+        // Arpège pentatonique lent en boucle (note toutes les 1.2s)
+        const ARP_NOTES = [130.81, 155.56, 196.00, 233.08, 261.63, 233.08, 196.00, 155.56];
+        let idx = 0;
+        const play = () => {
+            if (this._mode !== 'menu') return;
+            const ac = this._ctx;
+            const t = ac.currentTime;
+            const osc = ac.createOscillator();
+            const gain = ac.createGain();
+            const rev = this._makeReverb(1.8);
+
+            osc.type = 'triangle'; osc.frequency.value = ARP_NOTES[idx % ARP_NOTES.length];
+            gain.gain.setValueAtTime(0, t);
+            gain.gain.linearRampToValueAtTime(0.09, t + 0.04);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+
+            osc.connect(gain); gain.connect(rev); gain.connect(this._master);
+            osc.start(t); osc.stop(t + 1.15);
+            idx++;
+            setTimeout(play, 1200);
+        };
+        play();
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       MUSIQUE JEU — boucle electro rythmique schedulée
+    ───────────────────────────────────────────────────────────── */
+    playGame(tier = 1) {
+        this._init();
+        this._stopAll();
+        this._mode = 'game';
+        this._tier = tier;
+        this._beatIdx = 0;
+        this._patternIdx = 0;
+        this._bassPatIdx = 0;
+        this._loopBars = 0;
+        this._updateTempo(tier);
+        this._nextBeat = this._ctx.currentTime + 0.05;
+
+        // Drone de fond continu (plus sombre que le menu)
+        const dg = this._makeDrone(65.41, 0.06);
+        this._nodes.push(dg);
+
+        // Scheduler : toutes les 50ms on programme les prochaines notes
+        this._schedTimer = setInterval(() => this._gameSched(), 50);
+    }
+
+    _updateTempo(tier) {
+        // BPM : 90 au tier 1 → 140 au tier 10
+        const bpm = 90 + (tier - 1) * 5.5;
+        this._beatMs = (60 / bpm) * 1000;
+    }
+
+    setTier(tier) {
+        if (tier === this._tier) return;
+        this._tier = tier;
+        this._updateTempo(tier);
+        // Flash sonore de transition de palier
+        this._sfxTierUp();
+    }
+
+    _gameSched() {
+        if (this._mode !== 'game') return;
+        const ac = this._ctx;
+        const lookAhead = this._scheduleAhead; // secondes d'avance
+        const beatSec = this._beatMs / 1000;
+
+        while (this._nextBeat < ac.currentTime + lookAhead) {
+            const t = this._nextBeat;
+            const b = this._beatIdx % 8;  // 8 temps par mesure (8ème de note)
+
+            this._schedBeat(t, b);
+            this._nextBeat += beatSec / 2; // 8ème = demi-temps
+            this._beatIdx++;
+
+            // Toutes les 16 8èmes (= 2 mesures), on change de pattern
+            if (this._beatIdx % 16 === 0) {
+                this._loopBars++;
+                if (this._loopBars % 4 === 0) {
+                    this._patternIdx = (this._patternIdx + 1) % this._LEAD_PATTERNS.length;
+                    this._bassPatIdx = (this._bassPatIdx + 1) % this._BASS_PATTERNS.length;
+                }
+            }
+        }
+    }
+
+    _schedBeat(t, b) {
+        const tier = this._tier;
+        const beatS = this._beatMs / 1000 / 2; // durée d'un 8ème
+
+        // ── KICK (temps forts 0 et 4) ─────────────────────────────
+        if (b === 0 || b === 4) this._schedKick(t);
+
+        // ── SNARE (temps 2 et 6) ──────────────────────────────────
+        if (b === 2 || b === 6) this._schedSnare(t);
+
+        // ── HI-HAT (tous les temps, plus présents avec tier) ──────
+        const hhVol = 0.03 + tier * 0.008;
+        this._schedHihat(t, hhVol, b % 2 === 0);
+
+        // ── BASSE (pattern) ───────────────────────────────────────
+        if (b % 2 === 0) {
+            const pat = this._BASS_PATTERNS[this._bassPatIdx];
+            const noteI = pat[Math.floor(b / 2) % pat.length];
+            const freq = this._SCALE[noteI] / 4; // une octave plus bas que la gamme
+            this._schedBass(t, freq, beatS * 1.8);
+        }
+
+        // ── LEAD mélodique (toutes les 8èmes) ─────────────────────
+        const pat = this._LEAD_PATTERNS[this._patternIdx];
+        const leadI = pat[this._beatIdx % pat.length];
+        const leadF = this._SCALE[leadI];
+        const leadV = 0.04 + tier * 0.003;
+        this._schedLead(t, leadF, beatS * 0.85, leadV);
+
+        // ── PAD d'accord (toutes les 8 8èmes) ────────────────────
+        if (b === 0) {
+            const rootF = this._SCALE[this._LEAD_PATTERNS[this._patternIdx][0]];
+            this._schedPad(t, rootF, beatS * 8, 0.04 + tier * 0.002);
+        }
+    }
+
+    /* ── Synthèse des instruments ─────────────────────────────── */
+
+    _schedKick(t) {
+        const ac = this._ctx;
+        const osc = ac.createOscillator();
+        const gain = ac.createGain();
+        osc.frequency.setValueAtTime(160, t);
+        osc.frequency.exponentialRampToValueAtTime(40, t + 0.08);
+        gain.gain.setValueAtTime(0.9, t);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+        osc.connect(gain); gain.connect(this._master);
+        osc.start(t); osc.stop(t + 0.25);
+    }
+
+    _schedSnare(t) {
+        const ac = this._ctx;
+        const noise = this._makeNoise(t, t + 0.14, 0.22);
+        const filt = ac.createBiquadFilter();
+        const gain = ac.createGain();
+        filt.type = 'bandpass'; filt.frequency.value = 2200; filt.Q.value = 0.8;
+        gain.gain.setValueAtTime(0.35, t);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+        noise.connect(filt); filt.connect(gain); gain.connect(this._master);
+        // Ton du snare
+        const osc = ac.createOscillator();
+        const og = ac.createGain();
+        osc.frequency.value = 200; og.gain.setValueAtTime(0.18, t); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+        osc.connect(og); og.connect(this._master); osc.start(t); osc.stop(t + 0.07);
+    }
+
+    _schedHihat(t, vol, open) {
+        const ac = this._ctx;
+        const noise = this._makeNoise(t, t + (open ? 0.08 : 0.025), 0.0);
+        const filt = ac.createBiquadFilter();
+        const gain = ac.createGain();
+        filt.type = 'highpass'; filt.frequency.value = 7000;
+        gain.gain.setValueAtTime(vol, t);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + (open ? 0.08 : 0.025));
+        noise.connect(filt); filt.connect(gain); gain.connect(this._master);
+    }
+
+    _schedBass(t, freq, dur) {
+        const ac = this._ctx;
+        const osc = ac.createOscillator();
+        const gain = ac.createGain();
+        const filt = ac.createBiquadFilter();
+        osc.type = 'sawtooth'; osc.frequency.value = freq;
+        filt.type = 'lowpass'; filt.frequency.value = 600; filt.Q.value = 3;
+        gain.gain.setValueAtTime(0.38, t);
+        gain.gain.setValueAtTime(0.22, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        osc.connect(filt); filt.connect(gain); gain.connect(this._master);
+        osc.start(t); osc.stop(t + dur + 0.01);
+    }
+
+    _schedLead(t, freq, dur, vol) {
+        const ac = this._ctx;
+        const osc = ac.createOscillator();
+        const osc2 = ac.createOscillator(); // légère dissonance
+        const gain = ac.createGain();
+        const filt = ac.createBiquadFilter();
+        osc.type = 'square'; osc.frequency.value = freq;
+        osc2.type = 'square'; osc2.frequency.value = freq * 1.005;
+        filt.type = 'lowpass'; filt.frequency.value = 2200 + (this._tier - 1) * 180; filt.Q.value = 1.5;
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(vol, t + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        osc.connect(gain); osc2.connect(gain); gain.connect(filt); filt.connect(this._master);
+        osc.start(t); osc.stop(t + dur + 0.02);
+        osc2.start(t); osc2.stop(t + dur + 0.02);
+    }
+
+    _schedPad(t, freq, dur, vol) {
+        // Accord (root + tierce mineure + quinte)
+        [[1, vol], [1.2, vol * 0.6], [1.5, vol * 0.5]].forEach(([ratio, v]) => {
+            const ac = this._ctx;
+            const osc = ac.createOscillator();
+            const gain = ac.createGain();
+            const filt = ac.createBiquadFilter();
+            osc.type = 'triangle'; osc.frequency.value = freq * ratio;
+            filt.type = 'lowpass'; filt.frequency.value = 1200; filt.Q.value = 0.5;
+            gain.gain.setValueAtTime(0, t);
+            gain.gain.linearRampToValueAtTime(v, t + 0.3);
+            gain.gain.setValueAtTime(v, t + dur - 0.4);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+            osc.connect(filt); filt.connect(gain); gain.connect(this._master);
+            osc.start(t); osc.stop(t + dur + 0.01);
+        });
+    }
+
+    /* ── Bruit blanc ─────────────────────────────────────────── */
+    _makeNoise(tStart, tStop, vol) {
+        const ac = this._ctx;
+        const bufLen = Math.ceil((tStop - tStart) * ac.sampleRate) + 4096;
+        const buf = ac.createBuffer(1, bufLen, ac.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+        const src = ac.createBufferSource();
+        src.buffer = buf;
+        src.start(tStart); src.stop(tStop + 0.01);
+        return src;
+    }
+
+    /* ── Réverb simple (convolution approchée) ───────────────── */
+    _makeReverb(dur) {
+        const ac = this._ctx;
+        const len = Math.ceil(dur * ac.sampleRate);
+        const buf = ac.createBuffer(2, len, ac.sampleRate);
+        for (let c = 0; c < 2; c++) {
+            const d = buf.getChannelData(c);
+            for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+        }
+        const conv = ac.createConvolver();
+        conv.buffer = buf;
+        conv.connect(this._master);
+        return conv;
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       GAME OVER — accord descendant dramatique
+    ───────────────────────────────────────────────────────────── */
+    playGameOver() {
+        this._init();
+        this._stopAll();
+        this._mode = null;
+        const ac = this._ctx;
+        const t = ac.currentTime;
+
+        // Crash de cymbale
+        const noise = this._makeNoise(t, t + 1.2, 0);
+        const nf = ac.createBiquadFilter(); nf.type = 'highpass'; nf.frequency.value = 3000;
+        const ng = ac.createGain(); ng.gain.setValueAtTime(0.5, t); ng.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+        noise.connect(nf); nf.connect(ng); ng.connect(this._master);
+
+        // Accord descendant (3 oscillateurs)
+        [[130.81, 0.25], [155.56, 0.18], [98.00, 0.22]].forEach(([freq, v], i) => {
+            const osc = ac.createOscillator();
+            const gain = ac.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(freq, t + i * 0.05);
+            osc.frequency.exponentialRampToValueAtTime(freq * 0.5, t + 2.5);
+            gain.gain.setValueAtTime(v, t + i * 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t + 2.6);
+            const filt = ac.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 1200;
+            osc.connect(filt); filt.connect(gain); gain.connect(this._master);
+            osc.start(t + i * 0.05); osc.stop(t + 2.8);
+        });
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       SFX
+    ───────────────────────────────────────────────────────────── */
+
+    sfxShoot(fireMode = 'single') {
+        if (!this._ctx || this._muted) return;
+        const ac = this._ctx, t = ac.currentTime;
+        const osc = ac.createOscillator();
+        const gain = ac.createGain();
+        const freqs = { single: [1200, 600], double: [900, 500], triple: [1400, 700], laser: [2000, 2200] };
+        const [f1, f2] = freqs[fireMode] || freqs.single;
+        osc.type = fireMode === 'laser' ? 'sawtooth' : 'square';
+        osc.frequency.setValueAtTime(f1, t);
+        osc.frequency.exponentialRampToValueAtTime(f2, t + 0.06);
+        gain.gain.setValueAtTime(0.12, t);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+        const filt = ac.createBiquadFilter(); filt.type = 'highpass'; filt.frequency.value = 800;
+        osc.connect(filt); filt.connect(gain); gain.connect(this._master);
+        osc.start(t); osc.stop(t + 0.08);
+    }
+
+    sfxExplosion(big = false) {
+        if (!this._ctx) return;
+        const ac = this._ctx, t = ac.currentTime;
+        const dur = big ? 0.8 : 0.35;
+        const noise = this._makeNoise(t, t + dur, 0);
+        const filt = ac.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = big ? 800 : 1400;
+        const gain = ac.createGain();
+        gain.gain.setValueAtTime(big ? 0.7 : 0.4, t);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        noise.connect(filt); filt.connect(gain); gain.connect(this._master);
+        // Boom basse
+        const boom = ac.createOscillator(); const bg = ac.createGain();
+        boom.frequency.setValueAtTime(big ? 80 : 120, t);
+        boom.frequency.exponentialRampToValueAtTime(20, t + dur * 0.7);
+        bg.gain.setValueAtTime(big ? 0.55 : 0.3, t); bg.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.7);
+        boom.connect(bg); bg.connect(this._master); boom.start(t); boom.stop(t + dur);
+    }
+
+    sfxCoin() {
+        if (!this._ctx) return;
+        const ac = this._ctx, t = ac.currentTime;
+        const osc = ac.createOscillator();
+        const gain = ac.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, t);
+        osc.frequency.exponentialRampToValueAtTime(1760, t + 0.07);
+        gain.gain.setValueAtTime(0.14, t);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+        osc.connect(gain); gain.connect(this._master);
+        osc.start(t); osc.stop(t + 0.13);
+    }
+
+    sfxPowerup() {
+        if (!this._ctx) return;
+        const ac = this._ctx, t = ac.currentTime;
+        [0, 0.08, 0.16].forEach((dt, i) => {
+            const osc = ac.createOscillator();
+            const gain = ac.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = 440 * Math.pow(1.26, i);
+            gain.gain.setValueAtTime(0.18, t + dt);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t + dt + 0.18);
+            osc.connect(gain); gain.connect(this._master);
+            osc.start(t + dt); osc.stop(t + dt + 0.2);
+        });
+    }
+
+    sfxBossAlert() {
+        if (!this._ctx) return;
+        const ac = this._ctx, t = ac.currentTime;
+        [0, 0.18, 0.36].forEach(dt => {
+            const osc = ac.createOscillator();
+            const gain = ac.createGain();
+            osc.type = 'sawtooth'; osc.frequency.value = 220;
+            const lfo = ac.createOscillator(); const lfog = ac.createGain();
+            lfo.frequency.value = 14; lfog.gain.value = 60;
+            lfo.connect(lfog); lfog.connect(osc.frequency);
+            gain.gain.setValueAtTime(0.28, t + dt);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t + dt + 0.15);
+            osc.connect(gain); gain.connect(this._master);
+            osc.start(t + dt); osc.stop(t + dt + 0.16); lfo.start(t + dt); lfo.stop(t + dt + 0.16);
+        });
+    }
+
+    sfxTierUp() { this._sfxTierUp(); }
+
+    _sfxTierUp() {
+        if (!this._ctx) return;
+        const ac = this._ctx, t = ac.currentTime;
+        [523.25, 659.25, 783.99].forEach((f, i) => {
+            const osc = ac.createOscillator();
+            const gain = ac.createGain();
+            osc.type = 'triangle'; osc.frequency.value = f;
+            gain.gain.setValueAtTime(0.2, t + i * 0.1);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.1 + 0.3);
+            osc.connect(gain); gain.connect(this._master);
+            osc.start(t + i * 0.1); osc.stop(t + i * 0.1 + 0.32);
+        });
+    }
+}
+
+/* Global audio instance */
+let Audio;
 
 /* ────────────────────────────────────────────────────────────────
    SKINS — 5 vaisseaux débloquables avec des pièces
@@ -911,6 +1419,7 @@ class GameEngine {
         this.state = 'menu';
         if (this.raf) { cancelAnimationFrame(this.raf); this.raf = null; }
         this._screen('menu');
+        if (typeof Audio !== 'undefined') Audio.playMenu();
     }
     showInstructions() { this._screen('instructions'); }
     showHighScores() {
@@ -963,6 +1472,7 @@ class GameEngine {
         this._screen('game');
         document.getElementById('overlay-pause').style.display = 'none';
         this._updateHUD();
+        if (typeof Audio !== 'undefined') Audio.playGame(1);
         if (this.raf) cancelAnimationFrame(this.raf);
         this.raf = requestAnimationFrame(this.loop);
     }
@@ -986,6 +1496,7 @@ class GameEngine {
         if (newTier > this.tier) {
             this.tier = newTier;
             this._announceTier(this.tier);
+            if (typeof Audio !== 'undefined') Audio.setTier(this.tier);
         }
 
         if (this.comboTimer > 0 && --this.comboTimer <= 0) this.combo = 1;
@@ -1052,6 +1563,7 @@ class GameEngine {
                 this.player.applyPowerup(pu.type);
                 this.particles.pickup(pu.x + 14, pu.y + 14, pu.color);
                 this.score += 10;
+                if (typeof Audio !== 'undefined') Audio.sfxPowerup();
                 this.powerups.splice(i, 1);
             }
         }
@@ -1066,6 +1578,7 @@ class GameEngine {
                 this.coinTotal += c.value;
                 localStorage.setItem('nb3_coins', this.coinTotal);
                 this.particles.pickup(c.x, c.y, c.color);
+                if (typeof Audio !== 'undefined') Audio.sfxCoin();
                 this.coins.splice(i, 1);
             }
         }
@@ -1186,6 +1699,7 @@ class GameEngine {
                 const type = isBoss ? 'boss' : 'miniboss';
                 this._showEvent(isBoss ? '💀 BOSS SURGIT !' : '⚠ MINIBOSS !', '#ff0000');
                 this.enemies.push(new Enemy(W / 2 - (isBoss ? 55 : 35), -100, type, this.tier));
+                if (typeof Audio !== 'undefined') Audio.sfxBossAlert();
                 break;
             }
         }
@@ -1208,6 +1722,7 @@ class GameEngine {
     _killEnemy(enemy, idx) {
         const big = ['boss', 'miniboss', 'tank'].includes(enemy.type);
         this.particles.explosion(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, enemy.color, big);
+        if (typeof Audio !== 'undefined') Audio.sfxExplosion(big);
         this.enemies.splice(idx, 1);
         this.kills++;
         const pts = Math.round(enemy.score * this.combo);
@@ -1260,6 +1775,7 @@ class GameEngine {
     /* ── Game Over ────────────────────────────────────────────────── */
     _gameOver() {
         this.state = 'gameover'; cancelAnimationFrame(this.raf); this.raf = null;
+        if (typeof Audio !== 'undefined') Audio.playGameOver();
         // Affichage immédiat avec les données locales
         document.getElementById('go-score').textContent = this.score;
         document.getElementById('go-kills').textContent = this.kills;
@@ -1403,8 +1919,17 @@ class GameEngine {
     }
 
     /* ── Pause ────────────────────────────────────────────────────── */
-    pause() { this.state = 'paused'; cancelAnimationFrame(this.raf); this.raf = null; document.getElementById('overlay-pause').style.display = 'flex'; }
-    resume() { this.state = 'playing'; document.getElementById('overlay-pause').style.display = 'none'; this.raf = requestAnimationFrame(this.loop); }
+    pause() {
+        this.state = 'paused'; cancelAnimationFrame(this.raf); this.raf = null;
+        document.getElementById('overlay-pause').style.display = 'flex';
+        if (typeof Audio !== 'undefined' && Audio._master) Audio._master.gain.setTargetAtTime(0.15, Audio._ctx.currentTime, 0.1);
+    }
+    resume() {
+        this.state = 'playing';
+        document.getElementById('overlay-pause').style.display = 'none';
+        if (typeof Audio !== 'undefined' && Audio._master && !Audio._muted) Audio._master.gain.setTargetAtTime(0.7, Audio._ctx.currentTime, 0.1);
+        this.raf = requestAnimationFrame(this.loop);
+    }
 }
 
 /* ────────────────────────────────────────────────────────────────
@@ -1412,6 +1937,7 @@ class GameEngine {
 ──────────────────────────────────────────────────────────────── */
 let Game;
 window.addEventListener('DOMContentLoaded', () => {
+    Audio = new NovaAudio();
     Game = new GameEngine();
     Game.showMenu();
 });
