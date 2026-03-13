@@ -1,0 +1,179 @@
+# 🚀 NOVA BLITZ — Space Shooter
+
+Un jeu de tir spatial complet avec deux modes de jeu, des ennemis variés, des power-ups et des boss épiques.
+
+---
+
+## 📁 Structure du projet
+
+```
+space-shooter-game/
+├── frontend/
+│   ├── index.html      — Interface principale (menus, HUD, écrans)
+│   ├── style.css       — Design néon spatial (Orbitron + Exo 2)
+│   └── script.js       — Moteur de jeu complet (Canvas 2D)
+├── backend/
+│   └── game_server.py  — Serveur Python (Flask ou HTTP standard)
+├── assets/
+│   ├── images/         — (dossier pour vos assets graphiques)
+│   └── sounds/         — (dossier pour vos effets sonores)
+└── README.md
+```
+
+---
+
+## 🎮 Lancer le jeu
+
+### Option 1 — Serveur Python (recommandé)
+
+**Sans dépendances (HTTP standard) :**
+```bash
+cd space-shooter-game
+python3 backend/game_server.py
+```
+Puis ouvrir : **http://localhost:8080**
+
+**Avec Flask (fonctionnalités API complètes) :**
+```bash
+pip install flask flask-cors
+python3 backend/game_server.py
+```
+
+### Option 2 — Directement dans le navigateur
+Double-cliquer sur `frontend/index.html`  
+*(Certaines fonctionnalités de localStorage peuvent être limitées)*
+
+### Option 3 — Serveur HTTP rapide Python
+```bash
+cd space-shooter-game/frontend
+python3 -m http.server 8080
+```
+Puis ouvrir : **http://localhost:8080**
+
+---
+
+## 🕹️ Contrôles
+
+| Touche | Action |
+|--------|--------|
+| `←` `→` ou `A` `D` | Déplacer le vaisseau |
+| `ESPACE` | Tirer |
+| `P` | Pause / Reprendre |
+| `ESC` | Retour au menu |
+
+---
+
+## 🎯 Modes de jeu
+
+### Mode Infini
+- Le joueur survie le plus longtemps possible
+- **+1 point** par seconde de survie
+- **+10 à +300 pts** par ennemi détruit
+- Difficulté croissante toutes les 20 secondes
+- Power-ups apparaissent aléatoirement
+
+### Mode Aventure
+- **10 niveaux** progressifs avec boss de fin
+- Bonus de vie entre les niveaux (+30 PV)
+- **+200 pts** par niveau complété
+- Boss final au niveau 5 et au niveau 10
+
+---
+
+## ⚡ Power-ups
+
+| Icône | Nom | Effet | Durée |
+|-------|-----|-------|-------|
+| `2X` | Tir Double | Deux balles simultanées | 10s |
+| `3X` | Tir Triple | Trois balles en éventail | 10s |
+| `🛡` | Bouclier | Absorbe les dégâts | Jusqu'à épuisement |
+| `⚡` | Laser | Tir rapide et puissant | 6s |
+| `⏱` | Ralentissement | Ennemis à 30% de vitesse | 8s |
+
+---
+
+## 👾 Types d'ennemis
+
+| Ennemi | Description | Points |
+|--------|-------------|--------|
+| **Grunt** | Basique, tombe en ligne droite | 10 |
+| **Zigzag** | Mouvement en zigzag imprévisible | 20 |
+| **Speeder** | Très rapide, fragile | 30 |
+| **Shooter** | Tire des projectiles, ondule | 35 |
+| **Tank** | Très résistant, tir lourd | 40 |
+| **Mini-boss** | 3 canons, barre de vie | 100 |
+| **Boss** | 2 phases, attaque en éventail | 300 |
+
+---
+
+## 🔧 API du serveur (Flask)
+
+| Endpoint | Méthode | Description |
+|----------|---------|-------------|
+| `GET /api/scores` | GET | Tous les scores |
+| `GET /api/scores?mode=infinite` | GET | Scores mode infini |
+| `POST /api/scores` | POST | Enregistrer un score |
+| `DELETE /api/scores` | DELETE | Réinitialiser les scores |
+| `GET /api/info` | GET | Informations serveur |
+
+**Exemple POST :**
+```json
+{
+  "mode": "infinite",
+  "score": 1250,
+  "label": "Vague 8"
+}
+```
+
+---
+
+## 🛠️ Personnalisation
+
+### Modifier la difficulté (script.js)
+```javascript
+// Vitesse du joueur
+this.speed = 5;              // Augmenter pour aller plus vite
+
+// Cadence de tir (frames entre tirs)
+this.fireRate = 12;          // Diminuer pour tirer plus vite
+
+// Taux de spawn (mode infini)
+this.infiniteSpawnRate = 120; // Diminuer pour plus d'ennemis
+```
+
+### Ajouter des niveaux (script.js)
+Ajouter un objet dans le tableau `LEVEL_DEFS` :
+```javascript
+{
+  title: "MON NIVEAU",
+  waves: [
+    { enemies: [{ type: 'grunt', count: 5, spacing: 70 }], delay: 0 },
+    { enemies: [{ type: 'boss', count: 1, spacing: 0 }], delay: 300 },
+  ]
+}
+```
+
+### Types d'ennemis disponibles
+`grunt`, `zigzag`, `tank`, `speeder`, `shooter`, `miniboss`, `boss`
+
+---
+
+## 📦 Dépendances
+
+**Frontend :** Aucune — HTML5 Canvas pur + polices Google Fonts
+
+**Backend Python :**
+- Python 3.8+ (inclus dans la plupart des systèmes)
+- Flask + flask-cors (optionnel) : `pip install flask flask-cors`
+
+---
+
+## 🎨 Crédits
+
+- Design : Style néon rétro-futuriste
+- Polices : [Orbitron](https://fonts.google.com/specimen/Orbitron) + [Exo 2](https://fonts.google.com/specimen/Exo+2) (Google Fonts)
+- Moteur : HTML5 Canvas 2D natif
+
+---
+
+*NOVA BLITZ v1.0.0 — Développé avec ♥ et beaucoup d'explosions*
