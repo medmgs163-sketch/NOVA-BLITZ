@@ -1,0 +1,215 @@
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8" />
+    <m>eta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>NOVA BLITZ — Space Shooter</title>
+        <link rel="stylesheet" href="style.css" />
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link
+            href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Exo+2:ital,wght@0,300;0,400;0,600;1,300&display=swap"
+            rel="stylesheet">
+</head>
+
+<body>
+
+    <!-- ═══════════════════════════════════════════════
+     MENU PRINCIPAL
+═══════════════════════════════════════════════ -->
+    <div id="screen-menu" class="screen active">
+        <div class="stars-bg"></div>
+        <div class="scanlines"></div>
+        <div class="menu-wrap">
+            <div class="logo-block">
+                <div class="logo-eyebrow">GALACTIC DEFENSE SYSTEM</div>
+                <h1 class="logo-main">NOVA<span>BLITZ</span></h1>
+                <div class="logo-sub">∞ MODE INFINI — SURVIVE OR DIE ∞</div>
+            </div>
+            <nav class="main-nav">
+                <button class="nav-btn nav-primary" onclick="Game.startGame()">
+                    <span class="nav-icon">▶</span><span>JOUER</span>
+                </button>
+                <button class="nav-btn" onclick="Game.showSkins()">
+                    <span class="nav-icon">⬡</span><span>VAISSEAUX</span>
+                </button>
+                <button class="nav-btn" onclick="Game.showInstructions()">
+                    <span class="nav-icon">?</span><span>INSTRUCTIONS</span>
+                </button>
+                <button class="nav-btn" onclick="Game.showHighScores()">
+                    <span class="nav-icon">★</span><span>MEILLEURS SCORES</span>
+                </button>
+            </nav>
+            <div class="menu-footer">v3.0 &nbsp;|&nbsp; © 2025 Nova Blitz</div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════
+     SKINS — Sélection de vaisseau
+═══════════════════════════════════════════════ -->
+    <div id="screen-skins" class="screen">
+        <div class="stars-bg"></div>
+        <div class="scanlines"></div>
+        <div class="page-wrap page-wrap--wide">
+            <h2 class="page-title">VAISSEAUX</h2>
+            <p class="page-subtitle skin-wallet">⬡ <span id="skin-coin-count">0</span> pièces disponibles</p>
+            <div id="skin-grid" class="skin-grid"></div>
+            <button class="btn-back" onclick="Game.showMenu()">← RETOUR</button>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════
+     INSTRUCTIONS
+═══════════════════════════════════════════════ -->
+    <div id="screen-instructions" class="screen">
+        <div class="stars-bg"></div>
+        <div class="scanlines"></div>
+        <div class="page-wrap">
+            <h2 class="page-title">INSTRUCTIONS</h2>
+            <div class="instr-grid">
+
+                <div class="instr-card">
+                    <h3>🎮 CONTRÔLES</h3>
+                    <div class="key-row"><span class="key-group"><kbd>←</kbd><kbd>→</kbd> /
+                            <kbd>A</kbd><kbd>D</kbd></span><span>Gauche / Droite</span></div>
+                    <div class="key-row"><span class="key-group"><kbd>↑</kbd><kbd>↓</kbd> /
+                            <kbd>W</kbd><kbd>S</kbd></span><span>Avant / Arrière</span></div>
+                    <div class="key-row"><span class="key-group"><kbd>ESPACE</kbd></span><span>Tirer (maintenir)</span>
+                    </div>
+                    <div class="key-row"><span class="key-group"><kbd>P</kbd></span><span>Pause</span></div>
+                    <div class="key-row"><span class="key-group"><kbd>ESC</kbd></span><span>Menu</span></div>
+                </div>
+
+                <div class="instr-card">
+                    <h3>⚡ POWER-UPS</h3>
+                    <div class="pu-row"><span class="pu-badge pu-double">2X</span>Double Laser (10s)</div>
+                    <div class="pu-row"><span class="pu-badge pu-triple">3X</span>Triple Shot (10s)</div>
+                    <div class="pu-row"><span class="pu-badge pu-shield">🛡</span>Bouclier (1 hit)</div>
+                    <div class="pu-row"><span class="pu-badge pu-laser">⚡</span>Laser Puissant (6s)</div>
+                    <div class="pu-row"><span class="pu-badge pu-slow">⏱</span>Ralenti Ennemis (8s)</div>
+                </div>
+
+                <div class="instr-card">
+                    <h3>🌊 PALIERS</h3>
+                    <p>Le jeu s'intensifie tous les <strong>20 secondes</strong>.</p>
+                    <br>
+                    <p>Chaque palier débloque de nouveaux types d'ennemis, augmente le nombre de spawns et accélère les
+                        tirs adverses.</p>
+                    <br>
+                    <h3>🏆 SCORE</h3>
+                    <p>+2 pts / seconde de survie</p>
+                    <p>Bonus combo jusqu'à ×8</p>
+                    <p>Power-up garanti toutes les 8 vagues</p>
+                </div>
+
+            </div>
+            <button class="btn-back" onclick="Game.showMenu()">← RETOUR</button>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════
+     MEILLEURS SCORES
+═══════════════════════════════════════════════ -->
+    <div id="screen-scores" class="screen">
+        <div class="stars-bg"></div>
+        <div class="scanlines"></div>
+        <div class="page-wrap">
+            <h2 class="page-title">MEILLEURS SCORES</h2>
+            <div id="scores-list" class="scores-list"></div>
+            <button class="btn-back" onclick="Game.showMenu()">← RETOUR</button>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════
+     ÉCRAN DE JEU
+═══════════════════════════════════════════════ -->
+    <div id="screen-game" class="screen">
+
+        <!-- HUD principal -->
+        <div id="hud">
+            <div class="hud-left">
+                <div class="hud-row">
+                    <span class="hud-lbl">VIE</span>
+                    <div class="hud-bar-wrap">
+                        <div id="health-bar" class="hud-bar hud-bar--hp"></div>
+                    </div>
+                    <span id="health-val" class="hud-val">100</span>
+                </div>
+                <div class="hud-row" id="shield-row" style="display:none">
+                    <span class="hud-lbl">BOUCLIER</span>
+                    <div class="hud-bar-wrap">
+                        <div id="shield-bar" class="hud-bar hud-bar--sh"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="hud-center">
+                <div id="hud-tier" class="hud-tier-lbl">PALIER 1</div>
+                <div id="hud-wave" class="hud-wave-lbl">VAGUE 1</div>
+                <div class="hud-coins-row"><span class="hud-coin-icon">⬡</span><span id="hud-coins"
+                        class="hud-coin-val">0</span></div>
+            </div>
+            <div class="hud-right">
+                <div class="hud-row hud-row--right">
+                    <span class="hud-lbl">SCORE</span>
+                    <span id="score-val" class="hud-score">0</span>
+                </div>
+                <div class="hud-row hud-row--right">
+                    <span class="hud-lbl">COMBO</span>
+                    <span id="combo-val" class="hud-combo">×1.0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Barre power-up textuelle -->
+        <div id="pu-info-bar"></div>
+
+        <!-- Canvas -->
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- Power-up icônes bas -->
+        <div id="active-powerups"></div>
+
+        <!-- Overlay Pause -->
+        <div id="overlay-pause" class="game-overlay" style="display:none">
+            <div class="overlay-panel">
+                <h2 class="overlay-title">PAUSE</h2>
+                <button class="overlay-btn" onclick="Game.resume()">▶ REPRENDRE</button>
+                <button class="overlay-btn" onclick="Game.showMenu()">⌂ MENU PRINCIPAL</button>
+            </div>
+        </div>
+
+        <!-- Annonce de palier -->
+        <div id="tier-announce" class="tier-announce" style="display:none"></div>
+
+        <!-- Annonce d'événement spécial -->
+        <div id="event-announce" class="event-announce" style="display:none"></div>
+
+    </div>
+
+    <!-- ═══════════════════════════════════════════════
+     GAME OVER
+═══════════════════════════════════════════════ -->
+    <div id="screen-gameover" class="screen">
+        <div class="stars-bg"></div>
+        <div class="scanlines"></div>
+        <div class="endscreen-wrap">
+            <div class="endscreen-title endscreen-title--over">GAME OVER</div>
+            <div class="endscreen-stats">
+                <div class="stat-row"><span>SCORE FINAL</span><span id="go-score">0</span></div>
+                <div class="stat-row"><span>MEILLEUR SCORE</span><span id="go-best">0</span></div>
+                <div class="stat-row"><span>ENNEMIS DÉTRUITS</span><span id="go-kills">0</span></div>
+                <div class="stat-row"><span>TEMPS DE SURVIE</span><span id="go-time">0s</span></div>
+                <div class="stat-row"><span>PALIER ATTEINT</span><span id="go-tier">1</span></div>
+                <div class="stat-row"><span>VAGUES SURVÉCUES</span><span id="go-waves">0</span></div>
+            </div>
+            <div id="go-record" class="record-badge" style="display:none">🏆 NOUVEAU RECORD !</div>
+            <div class="endscreen-btns">
+                <button class="nav-btn nav-primary" onclick="Game.startGame()">↺ RECOMMENCER</button>
+                <button class="nav-btn" onclick="Game.showMenu()">⌂ MENU</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
